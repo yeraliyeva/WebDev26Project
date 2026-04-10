@@ -1,0 +1,29 @@
+http:
+  middlewares:
+
+    # Strips /auth prefix before forwarding to auth service
+    strip-auth-prefix:
+      stripPrefix:
+        prefixes:
+          - "/auth"
+
+    strip-level-prefix:
+      stripPrefix:
+        prefixes:
+          - "/level"
+
+    # Strips any spoofed identity headers coming from clients
+    dmz-headers:
+      headers:
+        customRequestHeaders:
+          X-User-Id: ""
+          X-Username: ""
+
+    # For protected routes: forward auth to auth service for JWT verification
+    auth-verify:
+      forwardAuth:
+        address: "http://auth_service:8000/verify"
+        authResponseHeaders:
+          - "X-User-Id"
+          - "X-Username"
+        trustForwardHeader: false
