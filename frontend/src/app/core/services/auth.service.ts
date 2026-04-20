@@ -1,9 +1,10 @@
 import { Injectable, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { tap, catchError, throwError, switchMap } from 'rxjs';
+import { tap, catchError, throwError, switchMap, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AuthTokens, Profile } from '../models';
+import { normalizeStorageUrl } from '../utils/storage-url';
 
 /**
  * Manages authentication state: JWT tokens, user profile caching,
@@ -41,13 +42,13 @@ export class AuthService {
     }
 
     private setTokens(tokens: AuthTokens): void {
-        localStorage.setItem('access_token', tokens.access);
-        localStorage.setItem('refresh_token', tokens.refresh);
+        localStorage.setItem('access_token', tokens.access_token);
+        localStorage.setItem('refresh_token', tokens.refresh_token);
     }
 
     login(username: string, password: string) {
         return this.http
-            .post<AuthTokens>(`${this.base}/token/`, { username, password })
+            .post<AuthTokens>(`${this.base}/login`, { login: username, password })
             .pipe(
                 tap((tokens) => this.setTokens(tokens)),
                 switchMap(() => this.loadProfile())
@@ -56,20 +57,27 @@ export class AuthService {
 
     register(payload: {
         username: string;
+        email: string;
         password: string;
-        password_confirm: string;
-        avatar_id: number;
+        profile_image?: string | null;
     }) {
-        return this.http.post(`${this.base}/register/`, payload);
+        return this.http.post(`${this.base}/registration`, payload);
     }
 
     loadProfile() {
-        return this.http.get<Profile>(`${this.base}/me/`).pipe(
+        return this.http.get<Profile>(`${this.base}/me`).pipe(
+            map((p) => ({ ...p, profile_image_url: normalizeStorageUrl(p.profile_image_url) })),
             tap((profile) => this.profile.set(profile)),
             catchError((err) => {
                 this.profile.set(null);
                 return throwError(() => err);
             })
+        );
+    }
+
+    getPublicProfile(id: string) {
+        return this.http.get<Profile>(`${this.base}/users/${id}`).pipe(
+            map((p) => ({ ...p, profile_image_url: normalizeStorageUrl(p.profile_image_url) }))
         );
     }
 
