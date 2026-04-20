@@ -3,19 +3,11 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { AuthService } from '../../../core/services/auth.service';
-import { GameService } from '../../../core/services/game.service';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
 import { Avatar } from '../../../core/models';
+import { normalizeStorageUrl } from '../../../core/utils/storage-url';
 
-/**
- * Registration form component.
- *
- * Fetches the avatar catalogue on init so the user can pick one
- * before submitting.  The selected avatar_id is bound via ngModel
- * to the form model.  Displays field-level backend validation errors
- * returned from DRF without crashing.
- */
 @Component({
     selector: 'app-register',
     standalone: true,
@@ -25,9 +17,10 @@ import { Avatar } from '../../../core/models';
 })
 export class RegisterComponent implements OnInit {
     username = '';
+    email = '';
     password = '';
     passwordConfirm = '';
-    selectedAvatarId: number | null = null;
+    selectedAvatarId: string | null = null;
 
     avatars = signal<Avatar[]>([]);
     error = signal<string>('');
@@ -41,17 +34,43 @@ export class RegisterComponent implements OnInit {
 
     ngOnInit(): void {
         this.http
-            .get<Avatar[]>(`${environment.apiBase}/avatars/`)
-            .subscribe((data) => this.avatars.set(data));
+            .get<Avatar[]>(`${environment.apiBase}/auth/avatars`)
+            .subscribe({
+                next: (data) => this.avatars.set(
+                    data.map((a) => ({ ...a, image_url: normalizeStorageUrl(a.image_url) }))
+                ),
+                error: (err) => console.error('Failed to fetch avatars:', err)
+            });
     }
 
-    selectAvatar(id: number): void {
+    selectAvatar(id: string): void {
         this.selectedAvatarId = id;
     }
 
+    validateEmail(email: string): boolean {
+        const re = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
+        return re.test(email);
+    }
+
     onSubmit(): void {
-        if (!this.selectedAvatarId) {
-            this.error.set('Please select an avatar.');
+        // Front-end Validations
+        if (!this.username.trim()) {
+            this.error.set('Username is required.');
+            return;
+        }
+
+        if (!this.validateEmail(this.email)) {
+            this.error.set('Please enter a valid email address.');
+            return;
+        }
+
+        if (this.password.length < 8) {
+            this.error.set('Password must be at least 8 characters.');
+            return;
+        }
+
+        if (this.password !== this.passwordConfirm) {
+            this.error.set('Passwords do not match!');
             return;
         }
 
@@ -61,14 +80,36 @@ export class RegisterComponent implements OnInit {
         this.auth
             .register({
                 username: this.username,
+                email: this.email,
                 password: this.password,
-                password_confirm: this.passwordConfirm,
-                avatar_id: this.selectedAvatarId,
+                profile_image: this.selectedAvatarId,
             })
             .subscribe({
-                next: () => this.router.navigate(['/login']),
+                next: () => {
+                    // Auto-login after successful registration to avoid UX dead-ends.
+                    this.auth.login(this.username, this.password).subscribe({
+                        next: () => this.router.navigate(['/dashboard']),
+                        error: () => this.router.navigate(['/login']),
+                    });
+                },
                 error: (err) => {
-                    const msg = JSON.stringify(err.error ?? 'Registration failed.');
+                    let msg = 'Registration failed. Please try again.';
+                    if (err.error) {
+                         // Parse DRF validation dict
+                         if (typeof err.error === 'object') {
+                             const errors = [];
+                             for (const [key, val] of Object.entries(err.error)) {
+                                 if (Array.isArray(val)) {
+                                     errors.push(`${key}: ${val[0]}`);
+                                 } else {
+                                     errors.push(`${key}: ${val}`);
+                                 }
+                             }
+                             msg = errors.join(' | ');
+                         } else {
+                             msg = err.error.toString();
+                         }
+                    }
                     this.error.set(msg);
                     this.loading.set(false);
                 },
