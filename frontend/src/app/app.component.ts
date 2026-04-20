@@ -24,7 +24,6 @@ import { FormsModule } from '@angular/forms';
         </select>
 
         @if (auth.isLoggedIn()) {
-          <span class="nav-score">{{ auth.profile()?.total_score }} pts</span>
           <button (click)="auth.logout()" class="btn-logout">logout</button>
         } @else {
           <a routerLink="/login" class="nav-link">login</a>
