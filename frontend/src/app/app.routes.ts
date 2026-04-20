@@ -37,6 +37,13 @@ export const routes: Routes = [
             ),
     },
     {
+        path: 'test-leaderboard',
+        loadComponent: () =>
+            import('./features/leaderboard/test-leaderboard.component').then(
+                (m) => m.TestLeaderboardComponent
+            ),
+    },
+    {
         path: 'play/:id',
         canActivate: [authGuard],
         loadComponent: () =>
