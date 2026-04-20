@@ -1,40 +1,38 @@
 export interface Avatar {
-    id: number;
-    name: string;
+    id: string;
     image_url: string;
 }
 
 export interface Profile {
-    id: number;
+    id: string; // UUID from auth_service
     username: string;
-    avatar: Avatar;
-    total_score: number;
-    virtual_currency: number;
-    best_wpm: number;
+    email: string;
+    profile_image_url: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface Level {
-    id: number;
-    title: string;
-    content_text: string;
-    mode: 'standard' | 'cat_survival';
-    base_reward: number;
-    difficulty: number;
+    id: string; // UUID
+    text: string;
+    cost: number;
+    goal_wpm: number;
+    level_type: 'default' | 'cat_running';
+    created_at: string;
+    updated_at: string;
 }
 
 export interface AttemptResult {
-    id: number;
-    level_title: string;
+    id: string; // UUID
+    level_id: string;
+    user_id: string;
     wpm: number;
-    accuracy: number;
-    earned_score: number;
-    completed_at: string;
-    new_total_score: number;
-    new_currency: number;
+    rewarded_credits: number;
+    created_at: string;
 }
 
 export interface LeaderboardEntry {
-    id: number;
+    id: string; // UUID
     username: string;
     avatar_url: string;
     total_score: number;
@@ -42,8 +40,31 @@ export interface LeaderboardEntry {
 }
 
 export interface AuthTokens {
-    access: string;
-    refresh: string;
+    user_id: string;
+    access_token: string;
+    refresh_token: string;
+}
+
+export interface RefreshResponse {
+    access_token: string;
+}
+
+export interface BalanceResponse {
+    id: string;
+    user_id: string;
+    balance: number;
+    updated_at: string;
+}
+
+export interface LeaderboardResponse {
+    top: Array<{ place: number; user_id: string; score: number }>;
+    user_place: number | null;
+    user_score: number;
+}
+
+export interface LevelStatsResponse {
+    user_id: string;
+    best_wpm: number;
 }
 
 export interface Branch {
