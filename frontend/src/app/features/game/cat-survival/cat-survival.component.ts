@@ -10,91 +10,56 @@ import {
   ElementRef,
   ViewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { Level, Branch } from '../../../core/models';
+import { CommonModule, SlicePipe } from '@angular/common';
+import { Level } from '../../../core/models';
+
+interface RunnerBranch {
+  id: number;
+  letter: string;
+  x: number;
+  lane: number; // 0, 1, 2
+  active: boolean;
+  broken: boolean;
+}
 
 @Component({
   selector: 'app-cat-survival',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, SlicePipe],
   template: `
     <div class="cat-arena fade-in">
       <div class="arena-header">
-        <h3 class="arena-title">Cat Survival</h3>
-        <span class="arena-subtitle">{{ level.title }}</span>
+        <h3 class="arena-title">Cat Survival (Runner)</h3>
+        <span class="arena-subtitle">{{ level.text | slice:0:40 }}…</span>
       </div>
 
       <div class="arena-box" #arenaBox>
-        <!-- Night sky background particles -->
-        <div class="stars">
-          @for (s of starPositions; track $index) {
-            <div class="star-dot" [style.left.%]="s.x" [style.top.%]="s.y"
-                 [style.animation-delay.ms]="s.delay"></div>
-          }
-        </div>
 
-        <!-- Tree trunk -->
-        <div class="tree-trunk"></div>
-
-        <!-- Branches -->
+        <!-- Dynamic Obstacles (Branches) -->
         @for (branch of branches(); track branch.id) {
-          <div class="branch"
-               [class.active]="branch.active"
-               [class.broken]="branch.broken"
-               [style.left.px]="branchX(branch.id)"
-               [style.top.px]="branchY(branch.id)"
-               [class.branch-left]="branch.id % 2 === 0"
-               [class.branch-right]="branch.id % 2 !== 0">
-            <span class="branch-letter">{{ branch.letter }}</span>
-            <div class="branch-leaves"></div>
-          </div>
+          @if (branch.x > -100 && branch.x < 700) {
+            <div class="branch"
+                 [class.active]="branch.active"
+                 [class.broken]="branch.broken"
+                 [style.left.px]="branch.x"
+                 [style.top.px]="getLaneY(branch.lane)">
+              <span class="branch-letter">{{ branch.letter }}</span>
+            </div>
+          }
         }
 
-        <!-- Cat (CSS-drawn) -->
-        @if (!fell()) {
-          <div class="cat-character"
-               [style.left.px]="catX()"
-               [style.top.px]="catY()">
-            <div class="cat-body">
-              <div class="cat-ear left-ear"></div>
-              <div class="cat-ear right-ear"></div>
-              <div class="cat-head">
-                <div class="cat-eye left-eye"></div>
-                <div class="cat-eye right-eye"></div>
-                <div class="cat-nose"></div>
-              </div>
-              <div class="cat-torso"></div>
-              <div class="cat-tail"></div>
-            </div>
-          </div>
-        } @else {
-          <div class="cat-character falling" [style.left.px]="catX()">
-            <div class="cat-body">
-              <div class="cat-ear left-ear"></div>
-              <div class="cat-ear right-ear"></div>
-              <div class="cat-head">
-                <div class="cat-eye left-eye scared"></div>
-                <div class="cat-eye right-eye scared"></div>
-                <div class="cat-nose"></div>
-              </div>
-              <div class="cat-torso"></div>
-            </div>
-          </div>
-        }
-
-        <!-- Water -->
-        <div class="water">
-          <div class="wave wave-1"></div>
-          <div class="wave wave-2"></div>
-          <div class="wave wave-3"></div>
+        <!-- Running Cat Sprite -->
+        <div class="cat-character"
+             [class.falling]="fell()"
+             [style.top.px]="catY()">
         </div>
+
       </div>
 
-      <!-- Timer bar -->
+      <!-- Distance Progress bar -->
       <div class="timer-bar">
         <div class="timer-fill"
-             [style.width.%]="timerPercent()"
-             [class.danger]="timerPercent() < 30"></div>
+             [style.width.%]="progressPercent()"></div>
       </div>
 
       <!-- Current letter hint -->
@@ -107,17 +72,18 @@ import { Level, Branch } from '../../../core/models';
       <!-- Game Over -->
       @if (fell()) {
         <div class="game-over-card fade-in">
-          <h2>Splash!</h2>
-          <p>The cat reached branch {{ currentBranchIndex() }} of {{ branches().length }}</p>
-          <button class="action-btn" (click)="submitPartial()">Submit Score</button>
+          <h2>Oops, try again</h2>
+          <p>The cat hit branch {{ currentBranchIndex() }} of {{ totalCount }}</p>
+          <button class="action-btn" (click)="restartGame()">Try Again</button>
+          <button class="action-btn secondary" (click)="goBack()">Back to Dashboard</button>
         </div>
       }
 
       <!-- Win -->
       @if (won()) {
         <div class="win-card fade-in">
-          <h2>All branches cleared!</h2>
-          <p>The cat made it safely across</p>
+          <h2>Purrfect Run!</h2>
+          <p>The cat successfully reached the end of the forest!</p>
         </div>
       }
     </div>
@@ -130,103 +96,119 @@ export class CatSurvivalComponent implements OnInit, OnDestroy {
 
   @ViewChild('arenaBox') arenaBox?: ElementRef<HTMLDivElement>;
 
-  private readonly INITIAL_MS = 3000;
-  private readonly MIN_MS = 700;
-  private readonly DECAY_MS = 150;
-  private readonly BRANCH_COUNT = 12;
-  private readonly ARENA_WIDTH = 560;
-  private readonly ARENA_HEIGHT = 360;
-
-  branches = signal<Branch[]>([]);
+  branches = signal<RunnerBranch[]>([]);
   currentBranchIndex = signal<number>(0);
-  timerPercent = signal<number>(100);
+  progressPercent = signal<number>(0);
   fell = signal<boolean>(false);
   won = signal<boolean>(false);
-  catX = signal<number>(0);
-  catY = signal<number>(0);
-
-  starPositions: { x: number; y: number; delay: number }[] = [];
-
-  private currentIntervalMs = this.INITIAL_MS;
-  private tickInterval: ReturnType<typeof setInterval> | null = null;
-  private timerStart = 0;
+  
+  // Player state
+  catY = signal<number>(140);
+  
+  totalCount = 0;
+  private gameLoop: ReturnType<typeof setInterval> | null = null;
   private startTime = 0;
   private errors = 0;
 
+  // Balancing mechanics
+  private gameSpeed = 4; // px per tick
+  private readonly TICK_MS = 24; 
+  private readonly CAT_X = 40; // Collision threshold around left 40
+  private lanes = [50, 140, 230];
+
   ngOnInit(): void {
-    this.generateStars();
     this.buildBranches();
-    this.positionCatAtBranch(0);
-    this.startBranchTimer();
-    this.startTime = Date.now();
+    this.startGameLoop();
   }
 
   ngOnDestroy(): void {
     this.clearTimer();
   }
 
-  private generateStars(): void {
-    this.starPositions = Array.from({ length: 30 }, () => ({
-      x: Math.random() * 100,
-      y: Math.random() * 60,
-      delay: Math.random() * 3000,
-    }));
+  getLaneY(laneIdx: number): number {
+    return this.lanes[laneIdx];
   }
 
   getCurrentLetter(): string {
     const idx = this.currentBranchIndex();
-    const branches = this.branches();
-    if (idx < branches.length) {
-      return branches[idx].letter.toUpperCase();
+    const list = this.branches();
+    if (idx < list.length) {
+      return list[idx].letter.toUpperCase();
     }
     return '';
   }
 
   private buildBranches(): void {
-    const letters = 'abcdefghijklmnopqrstuvwxyz'.split('');
-    const shuffled = [...letters].sort(() => Math.random() - 0.5);
+    // Generate a long random sequence of letters for the run
+    const lettersPool = 'abcdefghijklmnopqrstuvwxyz'.split('');
+    // For testing/mocking, make it based on wordcount or just fixed length if content text is small
+    const targetLength = this.level.text ? Math.min(this.level.text.length, 50) : 40;
+    this.totalCount = targetLength;
 
-    const list: Branch[] = Array.from({ length: this.BRANCH_COUNT }, (_, i) => ({
-      id: i,
-      letter: shuffled[i % shuffled.length],
-      active: i === 0,
-      broken: false,
-    }));
+    const list: RunnerBranch[] = [];
+    let currentX = 300; // First obstacle spawns offscreen slightly
+    
+    for (let i = 0; i < targetLength; i++) {
+        // Pick random lane
+        const lane = Math.floor(Math.random() * 3);
+        const letter = lettersPool[Math.floor(Math.random() * lettersPool.length)];
+        
+        list.push({
+            id: i,
+            letter: letter,
+            x: currentX,
+            lane: lane,
+            active: i === 0,
+            broken: false
+        });
+        
+        // Distance spacing shrinks slightly as the game speeds up implicitly
+        currentX += Math.floor(200 + Math.random() * 150); 
+    }
 
     this.branches.set(list);
+    
+    // Position cat initially in the same lane as first branch
+    this.catY.set(this.lanes[list[0].lane]);
+    this.startTime = Date.now();
   }
 
-  branchX(id: number): number {
-    const centerX = this.ARENA_WIDTH / 2;
-    const offset = id % 2 === 0 ? -80 : 80;
-    return centerX + offset - 30;
-  }
-
-  branchY(id: number): number {
-    const topPad = 30;
-    const bottomPad = 80;
-    const usable = this.ARENA_HEIGHT - topPad - bottomPad;
-    return topPad + (usable / this.BRANCH_COUNT) * id;
-  }
-
-  private positionCatAtBranch(index: number): void {
-    this.catX.set(this.branchX(index) + 15);
-    this.catY.set(this.branchY(index) - 35);
-  }
-
-  private startBranchTimer(): void {
+  private startGameLoop(): void {
     this.clearTimer();
-    this.timerStart = Date.now();
 
-    this.tickInterval = setInterval(() => {
-      const elapsed = Date.now() - this.timerStart;
-      const pct = Math.max(0, 100 - (elapsed / this.currentIntervalMs) * 100);
-      this.timerPercent.set(pct);
+    this.gameLoop = setInterval(() => {
+        if (this.fell() || this.won()) return;
 
-      if (elapsed >= this.currentIntervalMs) {
-        this.triggerFall();
-      }
-    }, 50);
+        let collision = false;
+        
+        // Move all branches left
+        this.branches.update(arr => {
+            const nextArr = [...arr];
+            for (let i = this.currentBranchIndex(); i < nextArr.length; i++) {
+                if (!nextArr[i].broken) {
+                    nextArr[i] = { ...nextArr[i], x: nextArr[i].x - this.gameSpeed };
+                    
+                    // Collision check for active branch!
+                    if (nextArr[i].active && nextArr[i].x <= this.CAT_X + 24) {
+                        collision = true;
+                    }
+                }
+            }
+            return nextArr;
+        });
+
+        // Compute visual progress bar based on cleared branches
+        const pct = (this.currentBranchIndex() / this.totalCount) * 100;
+        this.progressPercent.set(pct);
+
+        if (collision) {
+            this.triggerFall();
+        }
+
+        // Slowly increase speed!
+        this.gameSpeed += 0.001; 
+
+    }, this.TICK_MS);
   }
 
   private triggerFall(): void {
@@ -235,9 +217,9 @@ export class CatSurvivalComponent implements OnInit, OnDestroy {
   }
 
   private clearTimer(): void {
-    if (this.tickInterval) {
-      clearInterval(this.tickInterval);
-      this.tickInterval = null;
+    if (this.gameLoop) {
+      clearInterval(this.gameLoop);
+      this.gameLoop = null;
     }
   }
 
@@ -247,9 +229,12 @@ export class CatSurvivalComponent implements OnInit, OnDestroy {
     if (event.key.length !== 1) return;
 
     const idx = this.currentBranchIndex();
-    const branch = this.branches()[idx];
+    const list = this.branches();
+    if (idx >= list.length) return;
 
-    if (event.key.toLowerCase() === branch.letter) {
+    const activeBranch = list[idx];
+
+    if (event.key.toLowerCase() === activeBranch.letter) {
       this.advanceCat(idx);
     } else {
       this.errors++;
@@ -257,6 +242,7 @@ export class CatSurvivalComponent implements OnInit, OnDestroy {
   }
 
   private advanceCat(idx: number): void {
+    // Break current branch, activate next
     this.branches.update((arr) => {
       const copy = [...arr];
       copy[idx] = { ...copy[idx], active: false, broken: true };
@@ -271,17 +257,15 @@ export class CatSurvivalComponent implements OnInit, OnDestroy {
 
     if (next >= this.branches().length) {
       this.clearTimer();
+      this.progressPercent.set(100);
       this.won.set(true);
       this.emitResult();
       return;
     }
 
-    this.positionCatAtBranch(next);
-    this.currentIntervalMs = Math.max(
-      this.MIN_MS,
-      this.INITIAL_MS - next * this.DECAY_MS
-    );
-    this.startBranchTimer();
+    // Move cat to Y of next branch
+    const nextBranch = this.branches()[next];
+    this.catY.set(this.lanes[nextBranch.lane]);
   }
 
   private emitResult(): void {
@@ -297,7 +281,18 @@ export class CatSurvivalComponent implements OnInit, OnDestroy {
     this.completed.emit({ wpm: Math.round(wpm), accuracy: Math.round(accuracy) });
   }
 
-  submitPartial(): void {
-    this.emitResult();
+  restartGame(): void {
+    this.fell.set(false);
+    this.won.set(false);
+    this.currentBranchIndex.set(0);
+    this.progressPercent.set(0);
+    this.catY.set(140);
+    this.errors = 0;
+    this.buildBranches();
+    this.startGameLoop();
+  }
+
+  goBack(): void {
+    window.history.back();
   }
 }
