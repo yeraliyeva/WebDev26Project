@@ -1,0 +1,111 @@
+services:
+  auth_service:
+    build: ../auth_service
+    container_name: auth_service
+    env_file:
+      - ../.env
+      - ../auth_service/.env
+    depends_on:
+      postgres_auth:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      internal:
+        aliases: [auth-service]
+      monitoring:
+        aliases: [auth-service]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=backend_internal"
+      - "traefik.http.routers.auth-admin.rule=PathPrefix(`/auth/admin`) || PathPrefix(`/auth/metrics`)"
+      - "traefik.http.routers.auth-admin.priority=200"
+      - "traefik.http.routers.auth-admin.middlewares=auth-prefix-header@file,strip-auth-prefix@file,global-cors@file"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+      - "traefik.http.routers.auth.priority=100"
+      - "traefik.http.routers.auth.middlewares=global-cors@file,auth-prefix-header@file,strip-auth-prefix@file,dmz-headers@file"
+      - "traefik.http.services.auth.loadbalancer.server.port=8000"
+
+  level_service:
+    build: ../level_service
+    container_name: level_service
+    env_file:
+      - ../.env
+      - ../level_service/.env
+    depends_on:
+      postgres_level:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      internal:
+        aliases: [level-service]
+      monitoring:
+        aliases: [level-service]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=backend_internal"
+      - "traefik.http.routers.level-admin.rule=PathPrefix(`/level/admin`) || PathPrefix(`/level/metrics`) || PathPrefix(`/level/health`)"
+      - "traefik.http.routers.level-admin.priority=200"
+      - "traefik.http.routers.level-admin.middlewares=level-prefix-header@file,strip-level-prefix@file,global-cors@file"
+      - "traefik.http.routers.level.rule=PathPrefix(`/level`)"
+      - "traefik.http.routers.level.priority=100"
+      - "traefik.http.routers.level.middlewares=global-cors@file,auth-verify@file,level-prefix-header@file,strip-level-prefix@file"
+      - "traefik.http.services.level.loadbalancer.server.port=8000"
+
+  balance_service:
+    build: ../balance_service
+    container_name: balance_service
+    env_file:
+      - ../.env
+      - ../balance_service/.env
+    depends_on:
+      postgres_balance:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      internal:
+        aliases: [balance-service]
+      monitoring:
+        aliases: [balance-service]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=backend_internal"
+      - "traefik.http.routers.balance-admin.rule=PathPrefix(`/balance/admin`) || PathPrefix(`/balance/metrics`) || PathPrefix(`/balance/health`)"
+      - "traefik.http.routers.balance-admin.priority=200"
+      - "traefik.http.routers.balance-admin.middlewares=balance-prefix-header@file,strip-balance-prefix@file,global-cors@file"
+      - "traefik.http.routers.balance.rule=(PathPrefix(`/balance`) || PathPrefix(`/transactions`))"
+      - "traefik.http.routers.balance.priority=100"
+      - "traefik.http.routers.balance.middlewares=global-cors@file,auth-verify@file,balance-prefix-header@file,strip-balance-prefix@file"
+      - "traefik.http.services.balance.loadbalancer.server.port=8000"
+
+  leaderboard_service:
+    build: ../leaderboard_service
+    container_name: leaderboard_service
+    env_file:
+      - ../.env
+      - ../leaderboard_service/.env
+    depends_on:
+      redis:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      internal:
+        aliases: [leaderboard-service]
+      monitoring:
+        aliases: [leaderboard-service]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=backend_internal"
+      - "traefik.http.routers.leaderboard-admin.rule=PathPrefix(`/leaderboard/admin`) || PathPrefix(`/leaderboard/metrics`) || PathPrefix(`/leaderboard/health`)"
+      - "traefik.http.routers.leaderboard-admin.priority=200"
+      - "traefik.http.routers.leaderboard-admin.middlewares=leaderboard-prefix-header@file,strip-leaderboard-prefix@file,global-cors@file"
+      - "traefik.http.routers.leaderboard.rule=PathPrefix(`/leaderboard`)"
+      - "traefik.http.routers.leaderboard.priority=100"
+      - "traefik.http.routers.leaderboard.middlewares=global-cors@file,auth-verify@file,leaderboard-prefix-header@file,strip-leaderboard-prefix@file"
+      - "traefik.http.services.leaderboard.loadbalancer.server.port=8000"
+      - "traefik.http.routers.leaderboard-ws.rule=PathPrefix(`/ws`)"
+      - "traefik.http.routers.leaderboard-ws.middlewares=global-cors@file"
+      - "traefik.http.routers.leaderboard-ws.service=leaderboard"

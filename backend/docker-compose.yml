@@ -1,0 +1,5 @@
+include:
+  - path: compose/networks-volumes.yml
+  - path: compose/proxy.yml
+  - path: compose/infrastructure.yml
+  - path: compose/services.yml

@@ -1,0 +1,280 @@
+services:
+  postgres_auth:
+    image: postgres:16-alpine
+    container_name: postgres_auth
+    environment:
+      POSTGRES_DB: ${AUTH_POSTGRES_DB}
+      POSTGRES_USER: ${AUTH_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${AUTH_POSTGRES_PASSWORD}
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  postgres_level:
+    image: postgres:16-alpine
+    container_name: postgres_level
+    environment:
+      POSTGRES_DB: ${LEVEL_POSTGRES_DB}
+      POSTGRES_USER: ${LEVEL_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${LEVEL_POSTGRES_PASSWORD}
+    volumes:
+      - postgres_level_data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  postgres_balance:
+    image: postgres:16-alpine
+    container_name: postgres_balance
+    environment:
+      POSTGRES_DB: ${BALANCE_POSTGRES_DB}
+      POSTGRES_USER: ${BALANCE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${BALANCE_POSTGRES_PASSWORD}
+    volumes:
+      - postgres_balance_data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    env_file: ../.env
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper
+    networks:
+      - internal
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    env_file: ../.env
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z localhost 9092 || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - internal
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ../scripts:/scripts:ro
+    command: /scripts/init-kafka-topics.sh
+    networks:
+      - internal
+
+  debezium:
+    image: debezium/connect:2.6
+    container_name: debezium
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres_auth:
+        condition: service_started
+    env_file: ../.env
+    networks:
+      - internal
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    env_file: ../.env
+    command: server /data -console-address ":9001"
+    environment:
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:8000/admin/minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      internal:
+        aliases:
+          - minio
+      monitoring:
+        aliases:
+          - minio
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    env_file: ../.env
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c " echo 'Waiting for MinIO...'; sleep 5; mc alias set myminio http://minio:9000 minioadmin minioadmin; mc mb myminio/typecat-static --ignore-existing; mc anonymous set public myminio/typecat-static; echo 'MinIO init completed.'; exit 0; "
+    networks:
+      - internal
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    volumes:
+      - ../monitoring/loki/loki-config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/config.yml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    volumes:
+      - ../monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  tempo:
+    image: grafana/tempo:2.4.1
+    container_name: tempo
+    volumes:
+      - ../monitoring/tempo/tempo-config.yml:/etc/tempo/config.yml:ro
+      - tempo_data:/var/tempo
+    command: [ "-config.file=/etc/tempo/config.yml" ]
+    restart: unless-stopped
+    networks:
+      - internal
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    env_file: ../.env
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: unless-stopped
+    networks:
+      - internal
+      - monitoring
+    environment:
+      - GF_SERVER_ROOT_URL=http://localhost:8000/admin/grafana
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=backend_internal"
+      - "traefik.http.routers.grafana.rule=PathPrefix(`/admin/grafana`)"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8085:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=typecat-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME=debezium
+      - KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS=http://debezium:8083
+      - SERVER_SERVLET_CONTEXT_PATH=/admin/kafka
+    depends_on:
+      kafka:
+        condition: service_healthy
+      debezium:
+        condition: service_started
+    networks:
+      - internal
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    env_file: ../.env
+    depends_on:
+      - redis
+    networks:
+      - internal
+      - monitoring
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    command: [ "--kafka.server=kafka:9092" ]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - internal
+      - monitoring
+
+  postgres-exporter-auth:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-auth
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${AUTH_POSTGRES_USER}:${AUTH_POSTGRES_PASSWORD}@postgres_auth:5432/${AUTH_POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      - postgres_auth
+    networks:
+      - internal
+      - monitoring
+
+  postgres-exporter-level:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-level
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${LEVEL_POSTGRES_USER}:${LEVEL_POSTGRES_PASSWORD}@postgres_level:5432/${LEVEL_POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      - postgres_level
+    networks:
+      - internal
+      - monitoring
+
+  postgres-exporter-balance:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter-balance
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${BALANCE_POSTGRES_USER}:${BALANCE_POSTGRES_PASSWORD}@postgres_balance:5432/${BALANCE_POSTGRES_DB}?sslmode=disable"
+    depends_on:
+      - postgres_balance
+    networks:
+      - internal
+      - monitoring
+
+  dockadmin:
+    image: demlabz/dockadmin
+    ports:
+      - "3000:3000"
+    networks:
+      - internal

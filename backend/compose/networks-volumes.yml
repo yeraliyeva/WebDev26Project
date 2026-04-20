@@ -1,0 +1,20 @@
+networks:
+  dmz:
+    driver: bridge
+  internal:
+    driver: bridge
+  monitoring:
+    driver: bridge
+
+volumes:
+  postgres_auth_data:
+  postgres_level_data:
+  postgres_balance_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:
+  minio_data:
