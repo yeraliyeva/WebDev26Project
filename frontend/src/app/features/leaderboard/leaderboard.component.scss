@@ -1,4 +1,4 @@
-/* ===== Leaderboard — Aura Styled ===== */
+/* ===== Leaderboard — Aura Styled (Animated Grid) ===== */
 
 .leaderboard {
     max-width: 700px;
@@ -13,63 +13,96 @@
     letter-spacing: 0.5px;
 }
 
-.table-wrapper {
+.leaderboard-container {
     background: var(--bg-surface);
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
 }
 
-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-thead {
-    th {
-        padding: 14px 20px;
+/* Header */
+.header-row {
+    display: flex;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--bg-elevated);
+    
+    div {
         font-size: 0.7rem;
         text-transform: lowercase;
         letter-spacing: 1px;
         color: var(--text-muted);
         font-weight: 500;
-        text-align: left;
-        border-bottom: 1px solid var(--bg-elevated);
     }
 }
 
-tbody {
-    tr {
-        transition: background-color var(--transition-fast);
+/* Row List */
+.leaderboard-list {
+    display: flex;
+    flex-direction: column;
+    position: relative; /* Essential for :move animations */
+}
 
-        &:hover {
-            background: var(--bg-elevated);
-        }
+.row-entry {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background-color var(--transition-fast);
+    background: var(--bg-surface);
+    position: relative;
 
-        &.rank-gold {
-            background: rgba(226, 183, 20, 0.04);
-        }
-
-        &.rank-silver {
-            background: rgba(192, 192, 192, 0.03);
-        }
-
-        &.rank-bronze {
-            background: rgba(205, 127, 50, 0.03);
-        }
+    &:hover {
+        background: var(--bg-elevated);
     }
 
-    td {
-        padding: 14px 20px;
-        font-size: 0.9rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    &.rank-gold {
+        background: rgba(226, 183, 20, 0.04);
+    }
+
+    &.rank-silver {
+        background: rgba(192, 192, 192, 0.03);
+    }
+
+    &.rank-bronze {
+        background: rgba(205, 127, 50, 0.03);
+    }
+
+    /* Simple horizontal indicator for updates */
+    &.updated {
+        animation: nudgeRight 400ms cubic-bezier(0.16, 1, 0.3, 1);
     }
 }
 
+@keyframes nudgeRight {
+    0% { transform: translateX(0); }
+    50% { transform: translateX(10px); }
+    100% { transform: translateX(0); }
+}
+
+/* Columns */
 .col-rank {
     width: 60px;
+    flex-shrink: 0;
 }
 
+.col-player {
+    flex-grow: 1;
+}
+
+.col-score {
+    width: 100px;
+    text-align: right;
+    padding-right: 20px;
+}
+
+.col-wpm {
+    width: 100px;
+    text-align: right;
+}
+
+/* Components */
 .rank-badge {
     width: 28px;
     height: 28px;
@@ -105,17 +138,28 @@ tbody {
     gap: 12px;
 }
 
-.player-avatar {
+.player-avatar, .avatar-placeholder {
     width: 32px;
     height: 32px;
     border-radius: 50%;
     object-fit: cover;
     border: 1px solid var(--bg-elevated);
+    flex-shrink: 0;
+}
+
+.avatar-placeholder {
+    background: var(--bg-elevated);
+    opacity: 0.5;
 }
 
 .player-name {
     font-weight: 500;
     color: var(--text-active);
+
+    &.loading {
+        opacity: 0.3;
+        font-style: italic;
+    }
 }
 
 .score-value {
