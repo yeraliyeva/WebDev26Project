@@ -37,25 +37,22 @@ import { generateLesson } from './typing-dictionary';
           <span class="label">combo</span>
           <span class="val">{{ combo() }}</span>
         </div>
+        <div class="mini-stat">
+          <span class="label">batch</span>
+          <span class="val">{{ currentBatchNum() }} / {{ totalBatches() }}</span>
+        </div>
       </div>
 
       <!-- Settings -->
       <div class="settings-group">
         <div class="wc-settings">
+          <span class="setting-title">Batch Size: </span>
           <button class="setting-btn" [class.active-btn]="lessonWordCount === 15"
                   (click)="changeWordCount(15)">15</button>
           <button class="setting-btn" [class.active-btn]="lessonWordCount === 30"
                   (click)="changeWordCount(30)">30</button>
           <button class="setting-btn" [class.active-btn]="lessonWordCount === 60"
                   (click)="changeWordCount(60)">60</button>
-        </div>
-        <div class="hand-settings">
-          <button class="setting-btn" [class.active-btn]="handMode === 'left'"
-                  (click)="changeHandMode('left')">Left</button>
-          <button class="setting-btn" [class.active-btn]="handMode === 'both'"
-                  (click)="changeHandMode('both')">Both</button>
-          <button class="setting-btn" [class.active-btn]="handMode === 'right'"
-                  (click)="changeHandMode('right')">Right</button>
         </div>
       </div>
 
@@ -74,7 +71,7 @@ import { generateLesson } from './typing-dictionary';
 
       <!-- Virtual Keyboard -->
       <div class="keyboard-container">
-        <div class="keyboard" [class]="'keyboard isolate-' + handMode">
+        <div class="keyboard isolate-both">
           <!-- Row 1 -->
           <div class="key f-l-pinky" [class.active]="activeKeys['Backquote']" [class.error]="errorKeys['Backquote']">\`</div>
           <div class="key f-l-pinky" [class.active]="activeKeys['Digit1']" [class.error]="errorKeys['Digit1']">1</div>
@@ -151,24 +148,26 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
     liveWpm = signal<number>(0);
     liveAccuracy = signal<number>(100);
     combo = signal<number>(0);
+    currentBatchNum = signal<number>(1);
+    totalBatches = signal<number>(1);
 
     isActive = false;
-    handMode: 'left' | 'right' | 'both' = 'both';
     lessonWordCount = 15;
-    useLocalDict = false;
 
     activeKeys: Record<string, boolean> = {};
     errorKeys: Record<string, boolean> = {};
 
-    private currentIndex = 0;
+    private fullWords: string[] = [];
+    private currentBatchIndex = 0; // index of which batch we are on
+    private currentIndex = 0; // index within the CURRENT batch
     private startTime: number | null = null;
-    private totalTyped = 0;
-    private errors = 0;
+    private absTotalTyped = 0;
+    private absErrors = 0;
     private wpmInterval: ReturnType<typeof setInterval> | null = null;
     private charElements: HTMLSpanElement[] = [];
 
     ngOnInit(): void {
-        this.initLesson();
+        this.initLessonSource();
     }
 
     ngAfterViewInit(): void {
@@ -182,28 +181,53 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
         if (this.wpmInterval) clearInterval(this.wpmInterval);
     }
 
-    private initLesson(): void {
-        const text = this.level.content_text || generateLesson(this.handMode, this.lessonWordCount);
-        this.useLocalDict = !this.level.content_text;
-
-        this.chars.set(
-            text.split('').map((c) => ({ char: c, state: 'pending' as const }))
-        );
-        this.currentIndex = 0;
+    private initLessonSource(): void {
+        // Build the total word bank
+        const textToUse = this.level.text || generateLesson('both', 500);
+        this.fullWords = textToUse.trim().split(/\s+/);
+        
+        this.absTotalTyped = 0;
+        this.absErrors = 0;
         this.startTime = null;
         this.isActive = false;
-        this.totalTyped = 0;
-        this.errors = 0;
         this.combo.set(0);
         this.liveWpm.set(0);
         this.liveAccuracy.set(100);
+        
+        this.loadBatch(0);
+    }
 
-        if (this.wpmInterval) clearInterval(this.wpmInterval);
+    private loadBatch(batchIdx: number): void {
+        this.currentBatchIndex = batchIdx;
+        this.currentIndex = 0;
+        this.currentBatchNum.set(batchIdx + 1);
+        this.totalBatches.set(Math.ceil(this.fullWords.length / this.lessonWordCount));
+
+        const start = batchIdx * this.lessonWordCount;
+        const end = start + this.lessonWordCount;
+        const batchWords = this.fullWords.slice(start, end);
+        
+        // If we are out of words, game is complete!
+        if (batchWords.length === 0) {
+            this.finish();
+            return;
+        }
+
+        const batchText = batchWords.join(' ');
+        this.chars.set(
+            batchText.split('').map((c) => ({ char: c, state: 'pending' as const }))
+        );
 
         setTimeout(() => {
             this.collectCharElements();
             this.updateCaretPosition();
         });
+    }
+
+    changeWordCount(count: number): void {
+        this.lessonWordCount = count;
+        // Resest progress completely on batch size change
+        this.initLessonSource();
     }
 
     private collectCharElements(): void {
@@ -214,42 +238,6 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
 
     focus(): void {
         (document.activeElement as HTMLElement)?.blur();
-    }
-
-    changeHandMode(mode: 'left' | 'right' | 'both'): void {
-        this.handMode = mode;
-        if (this.useLocalDict) {
-            this.restartLesson();
-        }
-    }
-
-    changeWordCount(count: number): void {
-        this.lessonWordCount = count;
-        if (this.useLocalDict) {
-            this.restartLesson();
-        }
-    }
-
-    private restartLesson(): void {
-        const text = generateLesson(this.handMode, this.lessonWordCount);
-        this.chars.set(
-            text.split('').map((c) => ({ char: c, state: 'pending' as const }))
-        );
-        this.currentIndex = 0;
-        this.startTime = null;
-        this.isActive = false;
-        this.totalTyped = 0;
-        this.errors = 0;
-        this.combo.set(0);
-        this.liveWpm.set(0);
-        this.liveAccuracy.set(100);
-
-        if (this.wpmInterval) clearInterval(this.wpmInterval);
-
-        setTimeout(() => {
-            this.collectCharElements();
-            this.updateCaretPosition();
-        });
     }
 
     @HostListener('window:keydown', ['$event'])
@@ -285,13 +273,14 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
             this.wpmInterval = setInterval(() => this.updateMetrics(), 200);
         }
 
-        if (this.currentIndex >= this.chars().length) return;
+        const currentBatchMax = this.chars().length;
+        if (this.currentIndex >= currentBatchMax) return;
 
         const expected = this.chars()[this.currentIndex].char;
         const state = event.key === expected ? 'correct' : 'incorrect';
 
         if (state === 'incorrect') {
-            this.errors++;
+            this.absErrors++;
             this.combo.set(0);
             this.errorKeys[event.code] = true;
             this.triggerShake();
@@ -299,7 +288,7 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
             this.combo.update(c => c + 1);
         }
 
-        this.totalTyped++;
+        this.absTotalTyped++;
 
         this.chars.update((arr) => {
             const copy = [...arr];
@@ -311,8 +300,12 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
         this.updateCaretPosition();
         this.updateMetrics();
 
-        if (this.currentIndex === this.chars().length) {
-            this.finish();
+        // Check if we finished the batch
+        if (this.currentIndex === currentBatchMax) {
+            // Wait slightly before loading next batch to show completion 
+            setTimeout(() => {
+                this.loadBatch(this.currentBatchIndex + 1);
+            }, 150);
         }
     }
 
@@ -348,11 +341,13 @@ export class StandardTypingComponent implements OnInit, OnDestroy, AfterViewInit
     private updateMetrics(): void {
         if (!this.startTime) return;
         const minutes = (performance.now() - this.startTime) / 60000;
-        const words = this.currentIndex / 5;
+        // Total valid words calculated by absolute correct chars / 5
+        const validChars = Math.max(0, this.absTotalTyped - this.absErrors);
+        const words = validChars / 5;
         this.liveWpm.set(minutes > 0 ? Math.round(words / minutes) : 0);
         this.liveAccuracy.set(
-            this.totalTyped > 0
-                ? Math.round(((this.totalTyped - this.errors) / this.totalTyped) * 100)
+            this.absTotalTyped > 0
+                ? Math.round(((this.absTotalTyped - this.absErrors) / this.absTotalTyped) * 100)
                 : 100
         );
     }
