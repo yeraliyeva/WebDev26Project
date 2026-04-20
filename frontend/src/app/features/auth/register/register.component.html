@@ -1,48 +1,65 @@
-<div class="auth-page">
-  <div class="auth-card fade-in">
-    <h2>Create Account</h2>
-    <p class="subtitle">Join TypeCat and start improving your typing</p>
+<div class="auth-page fade-in">
+  <!-- Interactive animated background elements -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <div class="auth-card glass-panel">
+    <div class="card-header">
+      <h2>Create Account</h2>
+      <p class="subtitle">Join TypeCat and elevate your typing mastery.</p>
+    </div>
 
     @if (error()) {
-    <div class="alert error">{{ error() }}</div>
+    <div class="alert error fade-in">
+      <span class="error-icon">⚠</span>
+      {{ error() }}
+    </div>
     }
 
-    <form (ngSubmit)="onSubmit()">
-      <div class="field">
-        <label>username</label>
-        <input [(ngModel)]="username" name="username" type="text" required placeholder="choose a username"
-          autocomplete="username" />
+    <form (ngSubmit)="onSubmit()" class="auth-form">
+      <div class="field-group">
+        <label>Username</label>
+        <input [(ngModel)]="username" name="username" type="text" required placeholder="Pick a unique handle"
+          autocomplete="username" class="glass-input" />
       </div>
 
-      <div class="field">
-        <label>password</label>
-        <input [(ngModel)]="password" name="password" type="password" required placeholder="create a password"
-          autocomplete="new-password" />
+      <div class="field-group">
+        <label>Email Address</label>
+        <input [(ngModel)]="email" name="email" type="email" required placeholder="name@example.com"
+          autocomplete="email" class="glass-input" />
       </div>
 
-      <div class="field">
-        <label>confirm password</label>
-        <input [(ngModel)]="passwordConfirm" name="passwordConfirm" type="password" required
-          placeholder="repeat your password" autocomplete="new-password" />
+      <div class="field-group">
+         <label>Password</label>
+         <input [(ngModel)]="password" name="password" type="password" required placeholder="Create a secure password"
+           autocomplete="new-password" class="glass-input" />
+      </div>
+
+      <div class="field-group">
+         <label>Confirm Password</label>
+         <input [(ngModel)]="passwordConfirm" name="passwordConfirm" type="password" required
+           placeholder="Repeat your password" autocomplete="new-password" class="glass-input" />
       </div>
 
       <div class="avatar-section">
-        <label class="section-label">choose your avatar</label>
+        <label class="section-label">Select your Identity (Optional)</label>
 
         @if (avatars().length === 0) {
         <div class="avatar-loading">
           @if (loading()) {
-          <p>Loading avatars...</p>
+            <div class="spinner"></div>
+            <p>Summoning Avatars...</p>
           } @else {
-          <p>No avatars available.</p>
+            <p class="muted">No avatars detected in the system.</p>
           }
         </div>
         } @else {
         <div class="avatar-grid">
           @for (avatar of avatars(); track avatar.id) {
-          <div class="avatar-item" [class.selected]="selectedAvatarId === avatar.id" (click)="selectAvatar(avatar.id)">
-            <img [src]="avatar.image_url" [alt]="avatar.name" />
-            <span>{{ avatar.name }}</span>
+          <div class="avatar-item fade-in" [class.selected]="selectedAvatarId === avatar.id" (click)="selectAvatar(avatar.id)">
+            <div class="avatar-img-container">
+              <img [src]="avatar.image_url" alt="Avatar" />
+            </div>
           </div>
           }
         </div>
@@ -50,12 +67,18 @@
       </div>
 
       <button type="submit" class="action-btn submit-btn" [disabled]="loading()">
-        @if (loading()) { creating... } @else { create account }
+        @if (loading()) {
+          <span class="spinner-btn"></span> Creating...
+        } @else {
+          Create Account
+        }
       </button>
     </form>
 
-    <p class="auth-switch">
-      already have an account? <a routerLink="/login">sign in</a>
-    </p>
+    <div class="auth-footer">
+      <p class="auth-switch">
+        Already a member? <a routerLink="/login" class="glow-link">Sign in</a>
+      </p>
+    </div>
   </div>
 </div>
